@@ -63,8 +63,9 @@ def fetch_quote(isin: str, mic: str):
     h5_tags = soup.select("div.head_detail_bottom h5")
     bid, ask = None, None
     for h5 in h5_tags:
-        label = h5.find("span", class_="data-12")
-        value = h5.find("span", class_=lambda c: c != "data-12" if c else True)
+        children = h5.find_all("span",recursive=False)
+        label = children[0]
+        value = children[1]
         if label and value:
             text = label.text.strip().lower()
             try:
@@ -86,10 +87,26 @@ def fetch_quote(isin: str, mic: str):
     spread_pct = round((ask - bid) / midprice * 100, 4)
 
     tz = pytz.timezone(TIMEZONE)
-    timestamp = datetime.now(tz).isoformat()
+    timestamp_local = datetime.now(tz).isoformat()
+
+    # Parse et conversion timestamp Euronext
+    timestamp_euronext = None
+    detail_divs = soup.select_one("div.head_detail_bottom")
+    if detail_divs:
+        divs = detail_divs.find_all("div", recursive=False)
+        if divs:
+            raw = " ".join(divs[0].text.split())
+            # raw = "02/04/2026 - 17:40 CET"
+            try:
+                dt = datetime.strptime(raw, "%d/%m/%Y - %H:%M CET")
+                dt = tz.localize(dt)
+                timestamp_euronext = dt.isoformat()
+            except ValueError:
+                timestamp_euronext = raw
 
     return {
-        "timestamp": timestamp,
+        "timestamp_local": timestamp_local,
+        "timestamp_euronext": timestamp_euronext,
         "isin": isin,
         "bid": bid,
         "ask": ask,
@@ -121,10 +138,10 @@ def write_row(path, row: dict) -> None:
 def run():
     print("=== ETF Spread Monitor démarré ===")
     while True:
-        if not is_market_open():
-            print("[INFO] Marché fermé, attente...")
-            time.sleep(60)
-            continue
+        # if not is_market_open():
+        #     print("[INFO] Marché fermé, attente...")
+        #     time.sleep(60)
+        #     continue
 
         for isin, meta in ETFS.items():
             quote = fetch_quote(isin, meta["mic"])
@@ -132,7 +149,7 @@ def run():
                 path = get_csv_path(isin)
                 write_row(path, quote)
                 print(
-                    f"[{quote['timestamp']}] "
+                    f"[{quote['timestamp_euronext']}] "
                     f"bid={quote['bid']} ask={quote['ask']} "
                     f"spread={quote['spread_pct']}%"
                 )
