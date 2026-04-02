@@ -126,7 +126,7 @@ def write_row(path, row: dict) -> None:
     file_exists = path.exists()
     with open(path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=row.keys())
-        if not file_exists:
+        if not file_exists or path.stat().st_size == 0:
             writer.writeheader()
         writer.writerow(row)
 
