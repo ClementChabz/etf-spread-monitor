@@ -4,12 +4,11 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import pytz
+import pandas_market_calendars as mcal
 
 from config import (
     ETFS,
     POLL_INTERVAL_SECONDS,
-    SESSION_START,
-    SESSION_END,
     TIMEZONE,
     EURONEXT_QUOTE_URL,
     DATA_DIR,
@@ -19,20 +18,27 @@ from config import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def is_market_open() -> bool:
     tz = pytz.timezone(TIMEZONE)
     now = datetime.now(tz)
-    start = now.replace(
-        hour=int(SESSION_START.split(":")[0]),
-        minute=int(SESSION_START.split(":")[1]),
-        second=0, microsecond=0
+    
+    ISIN=next(iter(ETFS.keys()))
+    MIC=ETFS[ISIN]["mic"] # XPAR pour Euronext Paris
+
+    cal = mcal.get_calendar(MIC)
+    schedule = cal.schedule(
+        start_date=now.strftime("%Y-%m-%d"),
+        end_date=now.strftime("%Y-%m-%d")
     )
-    end = now.replace(
-        hour=int(SESSION_END.split(":")[0]),
-        minute=int(SESSION_END.split(":")[1]),
-        second=0, microsecond=0
-    )
-    return start <= now <= end and now.weekday() < 5
+    
+    if schedule.empty:
+        return False
+    
+    market_open = schedule.iloc[0]["market_open"].astimezone(tz)
+    market_close = schedule.iloc[0]["market_close"].astimezone(tz)
+    
+    return market_open <= now <= market_close
 
 
 def fetch_quote(isin: str, mic: str):
@@ -138,11 +144,12 @@ def write_row(path, row: dict) -> None:
 def run():
     print("=== ETF Spread Monitor démarré ===")
     while True:
-        # if not is_market_open():
-        #     print("[INFO] Marché fermé, attente...")
-        #     time.sleep(60)
-        #     continue
+        if not is_market_open():
+            print("[INFO] Marché fermé, attente...")
+            time.sleep(60)
+            continue
 
+        
         for isin, meta in ETFS.items():
             quote = fetch_quote(isin, meta["mic"])
             if quote:
